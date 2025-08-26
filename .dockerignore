@@ -1,0 +1,25 @@
+# Python cruft
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+.eggs/
+
+# Local envs & IDE
+.venv/
+.env
+.vscode/
+.idea/
+
+# Git
+.git/
+.gitignore
+
+# Data & artifacts (don’t bake docs/index into the image)
+data/
+store/
+*.zip
+*.pdf
+*.csv
+*.xlsx

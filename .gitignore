@@ -1,0 +1,41 @@
+# --- Python / Streamlit ---
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*.log
+
+# Jupyter & tooling caches
+.ipynb_checkpoints/
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# IDE/editor folders
+.vscode/
+.idea/
+
+# --- Local RAG artifacts (do NOT commit your index) ---
+store/
+*.faiss
+*.jsonl
+
+# --- Data (ignore by default) ---
+data/
+kb_sample_pack*
+*.zip
+
+# Streamlit local secrets/config
+.streamlit/secrets.toml
+
+# Docker / misc
+*.tar
+desktop.ini
+
+# Secrets & OS cruft
+.env
+.env.*
+.DS_Store
+Thumbs.db

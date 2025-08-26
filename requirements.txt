@@ -1,0 +1,4 @@
+openai>=1.14.0
+faiss-cpu>=1.7.4
+pypdf>=4.2.0
+streamlit>=1.33.0

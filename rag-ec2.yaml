@@ -1,0 +1,105 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: RAG app on EC2 with Docker, pulling image from ECR and OPENAI key from SSM
+
+Parameters:
+  VpcId:        { Type: AWS::EC2::VPC::Id,    Description: VPC to launch the instance in }
+  SubnetId:     { Type: AWS::EC2::Subnet::Id, Description: Public subnet with internet access }
+  EcrRepoUri:   { Type: String,               Description: "<acct>.dkr.ecr.<region>.amazonaws.com/rag-app:latest" }
+  SsmParamName: { Type: String, Default: /rag/openai }
+  InstanceType: { Type: String, Default: t3.small }
+  KeyName:      { Type: AWS::EC2::KeyPair::KeyName, Default: "" }
+  AmiId:
+    Type: "AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>"
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+
+Conditions:
+  HasKey: !Not [ !Equals [ !Ref KeyName, "" ] ]
+
+Resources:
+  SG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !Ref VpcId
+      GroupDescription: Allow HTTP
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+
+  Role:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Service: ec2.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: RagInline
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: ssm:GetParameter
+                Resource: !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter${SsmParamName}
+              - Effect: Allow
+                Action: kms:Decrypt
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - ecr:GetAuthorizationToken
+                  - ecr:BatchGetImage
+                  - ecr:GetDownloadUrlForLayer
+                  - ecr:BatchCheckLayerAvailability
+                Resource: "*"
+
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles: [ !Ref Role ]
+
+  EC2:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref AmiId
+      InstanceType: !Ref InstanceType
+      SubnetId: !Ref SubnetId
+      SecurityGroupIds: [ !Ref SG ]
+      IamInstanceProfile: !Ref InstanceProfile
+      KeyName: !If [ HasKey, !Ref KeyName, !Ref "AWS::NoValue" ]
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -euxo pipefail
+          REGION=${AWS::Region}
+          ECR_URI='${EcrRepoUri}'
+          PARAM='${SsmParamName}'
+
+          dnf -y update
+          dnf -y install docker jq awscli
+          systemctl enable docker
+          systemctl start docker
+
+          aws ecr get-login-password --region "$REGION" \
+            | docker login --username AWS --password-stdin "$(echo $ECR_URI | awk -F/ '{print $1}')"
+
+          OPENAI_KEY=$(aws ssm get-parameter --with-decryption --name "$PARAM" \
+            --query 'Parameter.Value' --output text --region "$REGION")
+
+          docker pull "$ECR_URI"
+          docker stop rag || true
+          docker rm rag || true
+          docker run -d --name rag --restart unless-stopped \
+            -p 80:8501 -e OPENAI_API_KEY="$OPENAI_KEY" "$ECR_URI"
+
+Outputs:
+  AppURL:
+    Description: Open your app
+    Value: !Sub "http://${EC2.PublicDnsName}"
